@@ -1,0 +1,241 @@
+# Business Logic Mapping Configuration
+# ใช้สำหรับกำหนด mapping ระหว่าง table และ column ที่ชื่อไม่เหมือนกัน
+# และกำหนด business rules สำหรับการตรวจสอบข้อมูล
+
+# Contract Validation Configuration
+contract_validation:
+  # Query สำหรับดึงข้อมูล contract summary
+  contract_summary:
+    db2_query: |
+      SELECT 
+        CONTRACT_NO as contract_number,
+        OUTSTANDING_BALANCE as balance,
+        CONTRACT_STATUS as status,
+        CREATE_DATE as create_date
+      FROM SCHEMA1.CONTRACTS 
+      WHERE CONTRACT_STATUS IN ('ACTIVE', 'CLOSED')
+    
+    postgresql_query: |
+      SELECT 
+        contract_id as contract_number,
+        current_balance as balance,
+        status_code as status,
+        created_date as create_date
+      FROM public.loan_contracts 
+      WHERE status_code IN ('A', 'C')
+  
+  # Field mapping
+  db2_key_field: "contract_number"
+  pg_key_field: "contract_number"
+  db2_balance_field: "balance"
+  pg_balance_field: "balance"
+  db2_status_field: "status"
+  pg_status_field: "status"
+  db2_date_field: "create_date"
+  pg_date_field: "create_date"
+  
+  # Tolerance สำหรับการเปรียบเทียบจำนวนเงิน (หน่วยเป็นบาท)
+  balance_tolerance: 1.00
+
+# Customer Validation Configuration
+customer_validation:
+  customer_summary:
+    db2_query: |
+      SELECT 
+        CUSTOMER_ID as customer_id,
+        CUSTOMER_NAME as customer_name,
+        ID_CARD_NO as id_number,
+        PHONE_NUMBER as phone,
+        EMAIL_ADDRESS as email,
+        TOTAL_BALANCE as total_outstanding
+      FROM SCHEMA1.CUSTOMERS
+    
+    postgresql_query: |
+      SELECT 
+        cust_id as customer_id,
+        full_name as customer_name,
+        national_id as id_number,
+        mobile_phone as phone,
+        email_addr as email,
+        total_debt as total_outstanding
+      FROM public.customer_master
+  
+  db2_key_field: "customer_id"
+  pg_key_field: "customer_id"
+  
+  # Fields to compare
+  compare_fields:
+    - name: "customer_name"
+      db2_field: "customer_name"
+      pg_field: "customer_name"
+      type: "string"
+    - name: "id_number"
+      db2_field: "id_number"
+      pg_field: "id_number"
+      type: "string"
+    - name: "phone"
+      db2_field: "phone"
+      pg_field: "phone"
+      type: "string"
+    - name: "email"
+      db2_field: "email"
+      pg_field: "email"
+      type: "string"
+    - name: "total_outstanding"
+      db2_field: "total_outstanding"
+      pg_field: "total_outstanding"
+      type: "decimal"
+
+# Aggregate Validation Configuration
+aggregate_validation:
+  # ตรวจสอบยอดรวมเงินคงค้าง
+  total_outstanding_balance:
+    db2_query: |
+      SELECT SUM(OUTSTANDING_BALANCE) as total_balance
+      FROM SCHEMA1.CONTRACTS 
+      WHERE CONTRACT_STATUS = 'ACTIVE'
+    
+    postgresql_query: |
+      SELECT SUM(current_balance) as total_balance
+      FROM public.loan_contracts 
+      WHERE status_code = 'A'
+    
+    db2_result_field: "total_balance"
+    pg_result_field: "total_balance"
+    tolerance: 100.00  # ยอมให้ผิดพลาดได้ 100 บาท
+  
+  # ตรวจสอบจำนวน contract ทั้งหมด
+  active_contract_count:
+    db2_query: |
+      SELECT COUNT(*) as contract_count
+      FROM SCHEMA1.CONTRACTS 
+      WHERE CONTRACT_STATUS = 'ACTIVE'
+    
+    postgresql_query: |
+      SELECT COUNT(*) as contract_count
+      FROM public.loan_contracts 
+      WHERE status_code = 'A'
+    
+    db2_result_field: "contract_count"
+    pg_result_field: "contract_count"
+    tolerance: 0  # ต้องตรงพอดี
+  
+  # ตรวจสอบยอดรวมรายได้ที่ได้รับแล้ว
+  total_payments_received:
+    db2_query: |
+      SELECT SUM(PAYMENT_AMOUNT) as total_payments
+      FROM SCHEMA1.PAYMENTS 
+      WHERE PAYMENT_STATUS = 'COMPLETED'
+        AND PAYMENT_DATE >= '2024-01-01'
+    
+    postgresql_query: |
+      SELECT SUM(amount) as total_payments
+      FROM public.payment_transactions 
+      WHERE status = 'COMPLETED'
+        AND transaction_date >= '2024-01-01'
+    
+    db2_result_field: "total_payments"
+    pg_result_field: "total_payments"
+    tolerance: 50.00
+
+# Custom Business Rules
+custom_rules:
+  # ตรวจสอบว่าลูกค้าทุกคนที่มี contract ต้องมีข้อมูลใน customer table
+  customers_with_contracts:
+    type: "count_match"
+    db2_query: |
+      SELECT DISTINCT c.CUSTOMER_ID 
+      FROM SCHEMA1.CONTRACTS c
+      INNER JOIN SCHEMA1.CUSTOMERS cust ON c.CUSTOMER_ID = cust.CUSTOMER_ID
+      WHERE c.CONTRACT_STATUS = 'ACTIVE'
+    
+    postgresql_query: |
+      SELECT DISTINCT lc.customer_id 
+      FROM public.loan_contracts lc
+      INNER JOIN public.customer_master cm ON lc.customer_id = cm.cust_id
+      WHERE lc.status_code = 'A'
+  
+  # ตรวจสอบยอดรวม interest ที่ค้างชำระ
+  total_interest_outstanding:
+    type: "sum_match"
+    db2_query: |
+      SELECT CONTRACT_NO, INTEREST_OUTSTANDING
+      FROM SCHEMA1.CONTRACT_DETAILS
+      WHERE CONTRACT_STATUS = 'ACTIVE'
+    
+    postgresql_query: |
+      SELECT contract_id, outstanding_interest
+      FROM public.contract_financials
+      WHERE is_active = true
+    
+    db2_sum_field: "INTEREST_OUTSTANDING"
+    pg_sum_field: "outstanding_interest"
+    tolerance: 100.00
+  
+  # ตรวจสอบจำนวน payment transactions ในเดือนปัจจุบัน
+  current_month_payments:
+    type: "count_match"
+    db2_query: |
+      SELECT PAYMENT_ID 
+      FROM SCHEMA1.PAYMENTS
+      WHERE EXTRACT(YEAR FROM PAYMENT_DATE) = EXTRACT(YEAR FROM CURRENT_DATE)
+        AND EXTRACT(MONTH FROM PAYMENT_DATE) = EXTRACT(MONTH FROM CURRENT_DATE)
+        AND PAYMENT_STATUS = 'COMPLETED'
+    
+    postgresql_query: |
+      SELECT transaction_id 
+      FROM public.payment_transactions
+      WHERE EXTRACT(YEAR FROM transaction_date) = EXTRACT(YEAR FROM CURRENT_DATE)
+        AND EXTRACT(MONTH FROM transaction_date) = EXTRACT(MONTH FROM CURRENT_DATE)
+        AND status = 'COMPLETED'
+
+# Advanced Validation Rules
+advanced_rules:
+  # ตรวจสอบข้อมูลที่ซับซ้อนขึ้น
+  contract_payment_consistency:
+    description: "ตรวจสอบความสอดคล้องระหว่างยอด payment กับ outstanding balance"
+    db2_query: |
+      SELECT 
+        c.CONTRACT_NO,
+        c.ORIGINAL_AMOUNT,
+        c.OUTSTANDING_BALANCE,
+        COALESCE(SUM(p.PAYMENT_AMOUNT), 0) as total_paid
+      FROM SCHEMA1.CONTRACTS c
+      LEFT JOIN SCHEMA1.PAYMENTS p ON c.CONTRACT_NO = p.CONTRACT_NO AND p.PAYMENT_STATUS = 'COMPLETED'
+      WHERE c.CONTRACT_STATUS = 'ACTIVE'
+      GROUP BY c.CONTRACT_NO, c.ORIGINAL_AMOUNT, c.OUTSTANDING_BALANCE
+    
+    postgresql_query: |
+      SELECT 
+        lc.contract_id,
+        lc.loan_amount,
+        lc.current_balance,
+        COALESCE(SUM(pt.amount), 0) as total_paid
+      FROM public.loan_contracts lc
+      LEFT JOIN public.payment_transactions pt ON lc.contract_id = pt.contract_id AND pt.status = 'COMPLETED'
+      WHERE lc.status_code = 'A'
+      GROUP BY lc.contract_id, lc.loan_amount, lc.current_balance
+    
+    validation_logic: "original_amount - total_paid should equal outstanding_balance (within tolerance)"
+    tolerance: 10.00
+
+# Status Code Mapping
+status_mapping:
+  db2_to_postgresql:
+    'ACTIVE': 'A'
+    'CLOSED': 'C'
+    'CANCELLED': 'X'
+    'SUSPENDED': 'S'
+  
+  postgresql_to_db2:
+    'A': 'ACTIVE'
+    'C': 'CLOSED'
+    'X': 'CANCELLED'
+    'S': 'SUSPENDED'
+
+# Data Type Conversion Settings
+conversion_settings:
+  decimal_precision: 2
+  date_format: "%Y-%m-%d"
+  string_trim: true
+  null_values: ["NULL", "null", "", " "]
