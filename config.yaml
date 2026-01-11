@@ -1,0 +1,39 @@
+# DB2 to PostgreSQL Migration Validation Configuration
+
+# DB2 Database Configuration
+db2:
+  host: "localhost"
+  port: 50000
+  database: "SAMPLE"
+  user: "db2admin"
+  password: "your_password"
+
+# PostgreSQL Database Configuration
+postgresql:
+  host: "localhost"
+  port: 5432
+  database: "migrated_db"
+  user: "postgres"
+  password: "your_password"
+
+# Validation Settings
+validation:
+  db2_schema: "DB2ADMIN"          # DB2 schema to validate
+  postgresql_schema: "public"      # PostgreSQL schema to validate (default: public)
+  max_tables_to_validate: 50       # Limit number of tables for data validation (optional)
+  
+# Output Settings
+output:
+  directory: "./reports"           # Directory to save reports
+  filename: "migration_validation" # Base filename for reports
+  console: true                   # Show console output
+
+# Logging Configuration
+logging:
+  level: "INFO"                   # DEBUG, INFO, WARNING, ERROR
+
+# Advanced Settings (Optional)
+advanced:
+  connection_timeout: 30          # Database connection timeout in seconds
+  query_timeout: 300             # Query timeout in seconds
+  sample_size: 1000              # Sample size for data type validation
